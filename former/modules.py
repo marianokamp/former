@@ -67,7 +67,7 @@ class SelfAttentionWide(nn.Module):
         # swap h, t back, unify heads
         out = out.transpose(1, 2).contiguous().view(b, t, h * e)
 
-        return self.unifyheads(out)
+        return self.unifyheads(out), dot # MK: Added dot as rv
 
 class SelfAttentionNarrow(nn.Module):
 
@@ -97,7 +97,9 @@ class SelfAttentionNarrow(nn.Module):
         self.unifyheads = nn.Linear(heads * s, emb)
 
     def forward(self, x):
-
+    
+        x, attentions = x
+        
         b, t, e = x.size()
         h = self.heads
         assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
@@ -141,8 +143,9 @@ class SelfAttentionNarrow(nn.Module):
 
         # swap h, t back, unify heads
         out = out.transpose(1, 2).contiguous().view(b, t, s * h)
-
-        return self.unifyheads(out)
+ 
+        attentions.append(dot.view(b, h, t, t))
+        return self.unifyheads(out), attentions # MK: Added dot as rv
 
 class TransformerBlock(nn.Module):
 
@@ -166,9 +169,9 @@ class TransformerBlock(nn.Module):
 
     def forward(self, x):
 
-        attended = self.attention(x)
+        attended, attentions = self.attention(x)
 
-        x = self.norm1(attended + x)
+        x = self.norm1(attended + x[0])
 
         x = self.do(x)
 
@@ -178,4 +181,4 @@ class TransformerBlock(nn.Module):
 
         x = self.do(x)
 
-        return x
+        return x, attentions # MK: Added attention as rv 

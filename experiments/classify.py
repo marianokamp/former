@@ -1,4 +1,18 @@
+from matplotlib import pyplot as plt
+
+if False:
+    import os 
+    os.system('ls -ltrh')
+    os.system('ls -ltrh former')
+    os.system('pwd')
+
+    from pathlib import Path
+
+    for p in Path('.').glob('**'): 
+        print(p)
+
 from _context import former
+
 from former import util
 
 from util import d, here
@@ -7,7 +21,6 @@ import torch
 from torch import nn
 from torch.autograd import Variable
 import torch.nn.functional as F
-
 from torchtext import data, datasets, vocab
 
 import numpy as np
@@ -15,7 +28,11 @@ import numpy as np
 from argparse import ArgumentParser
 from torch.utils.tensorboard import SummaryWriter
 
-import random, tqdm, sys, math, gzip
+import random, sys, math, gzip
+from tqdm.auto import tqdm #MK
+#from tqdm.autonotebook import tqdm #MK
+
+import os #MK
 
 # Used for converting between nats and bits
 LOG2E = math.log2(math.e)
@@ -23,15 +40,20 @@ TEXT = data.Field(lower=True, include_lengths=True, batch_first=True)
 LABEL = data.Field(sequential=False)
 NUM_CLS = 2
 
+def token_ids_to_text(token_ids):
+    return ' '.join([TEXT.vocab.itos[token_id] for token_id in token_ids])
+
 def go(arg):
     """
     Creates and trains a basic transformer for the IMDB sentiment classification task.
     """
     tbw = SummaryWriter(log_dir=arg.tb_dir) # Tensorboard logging
-
+    #from ipdb import set_trace; set_trace()
     # load the IMDB data
     if arg.final:
         train, test = datasets.IMDB.splits(TEXT, LABEL)
+        #train = train[:500]
+        #test = test[:100]
 
         TEXT.build_vocab(train, max_size=arg.vocab_size - 2)
         LABEL.build_vocab(train)
@@ -71,8 +93,11 @@ def go(arg):
         print(f'\n epoch {e}')
         model.train(True)
 
-        for batch in tqdm.tqdm(train_iter):
+        for i_, batch in enumerate(tqdm(train_iter)): #MK
 
+            if True and i_ > 4:
+                continue
+                
             opt.zero_grad()
 
             input = batch.text[0]
@@ -80,7 +105,7 @@ def go(arg):
 
             if input.size(1) > mx:
                 input = input[:, :mx]
-            out = model(input)
+            out, attentions = model(input)
             loss = F.nll_loss(out, label)
 
             loss.backward()
@@ -101,25 +126,103 @@ def go(arg):
             model.train(False)
             tot, cor= 0.0, 0.0
 
-            for batch in test_iter:
+            for i, batch in enumerate(test_iter):
+                
+                if True and i > 3:
+                    break
 
                 input = batch.text[0]
                 label = batch.label - 1
 
                 if input.size(1) > mx:
                     input = input[:, :mx]
-                out = model(input).argmax(dim=1)
+                out, attentions = model(input)
+                out = out.argmax(dim=1)
+                if i == 2:
+                    #print('attentions', attentions[1].size(), len(attentions))
+                    j = 1
+                    #print('---')
+                    
+                    batch_size = len(batch.text[0])
+                    #print('batch size', batch_size)
+                    layers = arg.depth
+                    #print('layers', layers)
+                    heads = arg.num_heads
+                    #print('heads', heads)
+                    
+                    
+                    #fig.tight_layout(pad=0, w_pad=0, h_pad=0)
+                    
+                    for j in range(batch_size)[0:3]:
+                        
+                        print('instance in batch:', j)
+                        
+                        fig = plt.figure(figsize=(20, 20)) 
+    
+                        #attention_matrices = attentions[0][j] #[0] # layer, batch, head
+    
+                        words = token_ids_to_text(batch.text[0][j])
+                        print('label', label[j].item())
+                        print(words)
+                        words = [f'{w:20s}' for w in words.split()]
+                        #from ipdb import set_trace; set_trace()
+                        for l in range(layers):
+                            for h in range(heads):
+                                # layers as rows, 
+                                # heads as columns
+                                # FIXME: Which layers go on top?
+                                
+                                index = l * heads + h + 1
+                                #print('layer', l, 'head', h, 'index', index)
+                                
+                                #from ipdb import set_trace; set_trace()
+                                
+                                ax = fig.add_subplot(layers, heads, index)
+                                
+                                ax.set_xticks(range(len(words)))
+                                ax.set_xticklabels(words)
+                                ax.tick_params(axis='x', rotation=90)
 
+                                ax.set_yticks(range(len(words)))
+                                ax.set_yticklabels(words)
+                                
+
+                                if l != layers-1: # not last row?
+                                    ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+
+                                if h != 0: # not first column?
+                                    #ax.set_yticklabels(len(words)*[''])
+                                    ax.tick_params(axis='y', which='both', bottom=False, top=False, labelleft=False)
+                                    
+                                    
+                                
+                                    
+                                ax.imshow(attentions[l][j][h])
+                                
+                                plt.subplots_adjust(wspace=0, hspace=0)
+                                #plt.show(img)
+                        
+                        
+                        #img.show()
+                        display(fig)
+                    #plt.close()
+                        #plt.show()
+                    print('..')
+                    #from ipdb import set_trace; set_trace()
+                    
                 tot += float(input.size(0))
                 cor += float((label == out).sum().item())
 
             acc = cor / tot
             print(f'-- {"test" if arg.final else "validation"} accuracy {acc:.3}')
             tbw.add_scalar('classification/test-loss', float(loss.item()), e)
-
-
-if __name__ == "__main__":
-
+            
+    # Saving model
+    print('Saving model to ', os.environ.get('SM_MODEL_DIR'))
+    torch.save(model, os.environ.get('SM_MODEL_DIR'))
+    os.system(f'ls {os.environ.get("SM_MODEL_DIR")}')
+            
+def get_arg_parser():
     parser = ArgumentParser()
 
     parser.add_argument("-e", "--num-epochs",
@@ -183,8 +286,12 @@ if __name__ == "__main__":
                         dest="gradient_clipping",
                         help="Gradient clipping.",
                         default=1.0, type=float)
+    
+    return parser
 
-    options = parser.parse_args()
+if __name__ == "__main__":
+
+    options = get_arg_parser().parse_args()
 
     print('OPTIONS ', options)
 
