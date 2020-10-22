@@ -95,7 +95,7 @@ def go(arg):
 
         for i_, batch in enumerate(tqdm(train_iter)): #MK
 
-            if True and i_ > 4:
+            if False and i_ > 5:
                 continue
                 
             opt.zero_grad()
@@ -128,7 +128,7 @@ def go(arg):
 
             for i, batch in enumerate(test_iter):
                 
-                if True and i > 3:
+                if False and i > 3:
                     break
 
                 input = batch.text[0]
@@ -138,9 +138,8 @@ def go(arg):
                     input = input[:, :mx]
                 out, attentions = model(input)
                 out = out.argmax(dim=1)
-                if i == 2:
+                if i == 5:
                     #print('attentions', attentions[1].size(), len(attentions))
-                    j = 1
                     #print('---')
                     
                     batch_size = len(batch.text[0])
@@ -153,7 +152,7 @@ def go(arg):
                     
                     #fig.tight_layout(pad=0, w_pad=0, h_pad=0)
                     
-                    for j in range(batch_size)[0:3]:
+                    for j in range(batch_size)[:1]:
                         
                         print('instance in batch:', j)
                         
@@ -194,10 +193,7 @@ def go(arg):
                                     #ax.set_yticklabels(len(words)*[''])
                                     ax.tick_params(axis='y', which='both', bottom=False, top=False, labelleft=False)
                                     
-                                    
-                                
-                                    
-                                ax.imshow(attentions[l][j][h])
+                                ax.imshow(attentions[l][j][h].cpu())
                                 
                                 plt.subplots_adjust(wspace=0, hspace=0)
                                 #plt.show(img)
